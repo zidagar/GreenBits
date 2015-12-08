@@ -560,7 +560,7 @@ public class WalletClient {
         final String path_hex;
         final ISigningWallet childKey;
         final Sha256Hash challenge_sha;
-        final ListenableFuture<String[]> signature_arg;
+        final ListenableFuture<Object> signature_arg;
         if (deterministicKey.canSignHashes()) {
             final BigInteger challenge = new BigInteger(challengeString);
             byte[] challengeBytes = challenge.toByteArray();
@@ -572,14 +572,29 @@ public class WalletClient {
             path_hex = getRandomHexString(16);
             challenge_sha = Sha256Hash.wrap(challengeBytes);
             childKey = createSubpathForLogin(deterministicKey, path_hex);
-            signature = childKey.signHash(challenge_sha);
-            signature_arg = Futures.transform(signature, new Function<ECKey.ECDSASignature, String[]>() {
-                @Nullable
-                @Override
-                public String[] apply(final @Nullable ECKey.ECDSASignature signature) {
-                    return new String[]{signature.r.toString(), signature.s.toString()};
-                }
-            });
+
+            if (Network.isAlpha) {
+                signature_arg = Futures.transform(childKey.signSchnorrHash(challenge_sha), new Function<byte[], Object>() {
+                    @Nullable
+                    @Override
+                    public Object apply(@Nullable byte[] input) {
+                        Integer[] ret = new Integer[64];
+                        for (int i = 0; i < 64; ++i) {
+                            ret[i] = input[i] & 0xff;
+                        }
+                        return ret;
+                    }
+                });
+            } else {
+                signature = childKey.signHash(challenge_sha);
+                signature_arg = Futures.transform(signature, new Function<ECKey.ECDSASignature, Object>() {
+                    @Nullable
+                    @Override
+                    public String[] apply(final @Nullable ECKey.ECDSASignature signature) {
+                        return new String[]{signature.r.toString(), signature.s.toString()};
+                    }
+                });
+            }
         } else {
             // btchip requires 0xB11E to skip HID authentication
             // 0x4741 = 18241 = 256*G + A in ASCII
@@ -590,11 +605,11 @@ public class WalletClient {
 
             challenge_sha = Sha256Hash.twiceOf(data);
             signature = childKey.signMessage(message);
-            signature_arg = Futures.transform(signature, new AsyncFunction<ECKey.ECDSASignature, String[]>() {
+            signature_arg = Futures.transform(signature, new AsyncFunction<ECKey.ECDSASignature, Object>() {
                 @Nullable
                 @Override
-                public ListenableFuture<String[]> apply(final @Nullable ECKey.ECDSASignature signature) {
-                    final SettableFuture<String[]> res = SettableFuture.create();
+                public ListenableFuture<Object> apply(final @Nullable ECKey.ECDSASignature signature) {
+                    final SettableFuture<Object> res = SettableFuture.create();
                     Futures.addCallback(childKey.getPubKey(), new FutureCallback<ECKey>() {
                         @Override
                         public void onSuccess(@Nullable ECKey result) {
@@ -618,9 +633,9 @@ public class WalletClient {
             });
         }
 
-        Futures.addCallback(signature_arg, new FutureCallback<String[]>() {
+        Futures.addCallback(signature_arg, new FutureCallback<Object>() {
             @Override
-            public void onSuccess(final @Nullable String[] result) {
+            public void onSuccess(final @Nullable Object result) {
                 mConnection.call("http://greenaddressit.com/login/authenticate", Object.class, new Wamp.CallHandler() {
                     @Override
                     public void onResult(final Object loginData) {

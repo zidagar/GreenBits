@@ -211,6 +211,11 @@ public class BTChipHWWallet implements ISigningWallet {
         });
     }
 
+    @Override
+    public ListenableFuture<byte[]> signSchnorrHash(Sha256Hash hash) {
+        return Futures.immediateFuture(new byte[0]);
+    }
+
     @android.support.annotation.Nullable
     @Override
     public ListenableFuture<ECKey.ECDSASignature> signHash(final Sha256Hash hash) {

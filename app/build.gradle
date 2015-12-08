@@ -71,6 +71,10 @@ android {
             applicationId = "com.greenaddress.greenbits_android_wallet.regtest"
             versionName "" + defaultConfig.getProperty("versionName") + "_regtest"
         }
+        alpha {
+            applicationId = "com.greenaddress.greenbits_android_wallet.alpha"
+            versionName "" + defaultConfig.getProperty("versionName") + "_alpha"
+        }
     }
     dexOptions {
         javaMaxHeapSize "2g"

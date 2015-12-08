@@ -18,6 +18,8 @@ public interface ISigningWallet {
 
     ListenableFuture<ECKey.ECDSASignature> signMessage(String message);
 
+    ListenableFuture<byte[]> signSchnorrHash(Sha256Hash hash);
+
     boolean canSignHashes();
 
     ListenableFuture<DeterministicKey> getPubKey();
