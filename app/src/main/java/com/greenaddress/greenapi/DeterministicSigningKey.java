@@ -44,6 +44,11 @@ public class DeterministicSigningKey implements ISigningWallet {
     }
 
     @Override
+    public ListenableFuture<byte[]> ecdh(byte[] pubkey) {
+        return Futures.immediateFuture(ECKey.fromPrivate(hdWallet.getPrivKey()).ecdh(pubkey));
+    }
+
+    @Override
     public boolean canSignHashes() {
         return true;
     }

@@ -20,6 +20,8 @@ public interface ISigningWallet {
 
     ListenableFuture<byte[]> signSchnorrHash(Sha256Hash hash);
 
+    ListenableFuture<byte[]> ecdh(byte[] pubkey);
+
     boolean canSignHashes();
 
     ListenableFuture<DeterministicKey> getPubKey();

@@ -216,6 +216,11 @@ public class BTChipHWWallet implements ISigningWallet {
         return Futures.immediateFuture(new byte[0]);
     }
 
+    @Override
+    public ListenableFuture<byte[]> ecdh(byte[] pubkey) {
+        return Futures.immediateFuture(null);
+    }
+
     @android.support.annotation.Nullable
     @Override
     public ListenableFuture<ECKey.ECDSASignature> signHash(final Sha256Hash hash) {

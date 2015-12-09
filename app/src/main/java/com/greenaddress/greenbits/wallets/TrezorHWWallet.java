@@ -69,6 +69,11 @@ public class TrezorHWWallet implements ISigningWallet {
         return Futures.immediateFuture(new byte[0]);
     }
 
+    @Override
+    public ListenableFuture<byte[]> ecdh(byte[] pubkey) {
+        return Futures.immediateFuture(null);
+    }
+
     @NonNull
     @Override
     public ListenableFuture<ECKey.ECDSASignature> signHash(final Sha256Hash hash) {

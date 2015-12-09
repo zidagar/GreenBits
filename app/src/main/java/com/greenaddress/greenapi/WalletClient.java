@@ -14,12 +14,15 @@ import com.greenaddress.greenbits.ui.BuildConfig;
 import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
 
+import org.bitcoin.NativeSecp256k1;
+import org.bitcoin.RewindResult;
 import org.bitcoinj.core.Address;
 import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.Sha256Hash;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.TransactionInput;
+import org.bitcoinj.core.TransactionOutput;
 import org.bitcoinj.core.Utils;
 import org.bitcoinj.crypto.ChildNumber;
 import org.bitcoinj.crypto.DeterministicKey;
@@ -268,8 +271,102 @@ public class WalletClient {
             }
         }, pathHex);
         return asyncWamp;
-    }    
-    
+    }
+
+    private ListenableFuture<Long> unblindOutValue(String rawtx, Integer pt_idx, Integer pointer) {
+        final Transaction tx = new Transaction(Network.NETWORK, Hex.decode(rawtx));
+        final TransactionOutput txOut = tx.getOutput(pt_idx);
+
+        final ISigningWallet scanningKey = hdWallet
+                .deriveChildKey(new ChildNumber(5, true))
+                .deriveChildKey(new ChildNumber(pointer, true));
+
+        final ListenableFuture<byte[]> nonceRes = scanningKey.ecdh(txOut.getNonceCommitment());
+        return Futures.transform(nonceRes, new AsyncFunction<byte[], Long>() {
+            @Override
+            public ListenableFuture<Long> apply(byte[] input) throws Exception {
+                byte[] nonceSha256 = Sha256Hash.hash(input);
+                RewindResult result = NativeSecp256k1.rangeProofRewind(
+                        nonceSha256,
+                        txOut.getCommitment(),
+                        txOut.getRangeProof()
+                );
+                return Futures.immediateFuture(result.getValue());
+            }
+        });
+    }
+
+    private ListenableFuture<Map<?, ?>> getAlphaBalance(final Map intoMap) {
+        final SettableFuture<Map<?, ?>> result = SettableFuture.create();
+        mConnection.call("http://greenaddressit.com/txs/get_all_unspent_outputs", ArrayList.class,
+                new Wamp.CallHandler() {
+                    @Override
+                    public void onResult(Object utxo_result) {
+                        final ArrayList utxos = (ArrayList) utxo_result;
+                        final ArrayList<ListenableFuture<Long>> raw_utxos = new ArrayList<ListenableFuture<Long>>();
+                        for (Object utxo_ : utxos) {
+                            final Map<?, ?> utxo = (Map<?, ?>) utxo_;
+                            final String txhash = (String) utxo.get("txhash");
+                            final Integer pt_idx = (Integer) utxo.get("pt_idx");
+                            final Integer pointer = (Integer) utxo.get("pointer");
+                            final SettableFuture<Long> utxodata = SettableFuture.create();
+                            mConnection.call(
+                                    "http://greenaddressit.com/txs/get_raw_unspent_output",
+                                    String.class, new Wamp.CallHandler() {
+                                        @Override
+                                        public void onResult(Object result) {
+                                            Futures.addCallback(unblindOutValue(
+                                                    (String) result,
+                                                    pt_idx,
+                                                    pointer
+                                            ), new FutureCallback<Long>() {
+                                                @Override
+                                                public void onSuccess(@Nullable Long result) {
+                                                    utxodata.set(result);
+                                                }
+
+                                                @Override
+                                                public void onFailure(Throwable t) {
+                                                    utxodata.setException(t);
+                                                }
+                                            });
+                                        }
+
+                                        @Override
+                                        public void onError(String errorUri, String errorDesc) {
+                                            utxodata.setException(new GAException(errorDesc));
+                                        }
+                                    }, txhash
+                            );
+                            raw_utxos.add(utxodata);
+                        }
+                        Futures.addCallback(Futures.allAsList(raw_utxos), new FutureCallback<List<Long>>() {
+                            @Override
+                            public void onSuccess(@Nullable List<Long> results) {
+                                long sum = 0;
+                                for (Long val : results) {
+                                    sum += val;
+                                }
+                                intoMap.put("satoshi", Long.toString(sum));
+                                result.set(intoMap);
+                            }
+
+                            @Override
+                            public void onFailure(Throwable t) {
+                                result.setException(t);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(String errorUri, String errorDesc) {
+                        result.setException(new GAException(errorDesc));
+                    }
+                }
+        , 0); // include zero-confs
+        return result;
+    }
+
     public ListenableFuture<Map<?, ?>> getBalance(final int subaccount) {
         final SettableFuture<Map<?, ?>> asyncWamp = SettableFuture.create();
         mConnection.call("http://greenaddressit.com/txs/get_balance", Map.class, new Wamp.CallHandler() {
@@ -283,7 +380,33 @@ public class WalletClient {
                 asyncWamp.setException(new GAException(errorDesc));
             }
         }, subaccount);
-        return asyncWamp;
+        if (Network.isAlpha) {
+            final SettableFuture<Map<?, ?>> alphaBalance = SettableFuture.create();
+            Futures.addCallback(asyncWamp, new FutureCallback<Map<?, ?>>() {
+                @Override
+                public void onSuccess(@Nullable Map<?, ?> result) {
+                    Futures.addCallback(getAlphaBalance(result), new FutureCallback<Map<?, ?>>() {
+                        @Override
+                        public void onSuccess(@Nullable Map<?, ?> result) {
+                            alphaBalance.set(result);
+                        }
+
+                        @Override
+                        public void onFailure(Throwable t) {
+                            alphaBalance.setException(t);
+                        }
+                    });
+                }
+
+                @Override
+                public void onFailure(Throwable t) {
+                    alphaBalance.setException(t);
+                }
+            });
+            return alphaBalance;
+        } else {
+            return asyncWamp;
+        }
     }
 
 
