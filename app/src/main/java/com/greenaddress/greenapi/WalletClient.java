@@ -380,14 +380,14 @@ public class WalletClient {
                 asyncWamp.setException(new GAException(errorDesc));
             }
         }, subaccount);
-        if (Network.isAlpha) {
+        if (Network.isCTEnabled) {
             final SettableFuture<Map<?, ?>> alphaBalance = SettableFuture.create();
             Futures.addCallback(asyncWamp, new FutureCallback<Map<?, ?>>() {
                 @Override
-                public void onSuccess(@Nullable Map<?, ?> result) {
+                public void onSuccess(final @Nullable Map<?, ?> result) {
                     Futures.addCallback(getAlphaBalance(result), new FutureCallback<Map<?, ?>>() {
                         @Override
-                        public void onSuccess(@Nullable Map<?, ?> result) {
+                        public void onSuccess(final @Nullable Map<?, ?> result) {
                             alphaBalance.set(result);
                         }
 
@@ -696,12 +696,12 @@ public class WalletClient {
             challenge_sha = Sha256Hash.wrap(challengeBytes);
             childKey = createSubpathForLogin(deterministicKey, path_hex);
 
-            if (Network.isAlpha) {
+            if (Network.isSchnorrEnabled) {
                 signature_arg = Futures.transform(childKey.signSchnorrHash(challenge_sha), new Function<byte[], Object>() {
                     @Nullable
                     @Override
-                    public Object apply(@Nullable byte[] input) {
-                        Integer[] ret = new Integer[64];
+                    public Object apply(final @Nullable byte[] input) {
+                        final Integer[] ret = new Integer[64];
                         for (int i = 0; i < 64; ++i) {
                             ret[i] = input[i] & 0xff;
                         }
