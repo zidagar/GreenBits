@@ -273,7 +273,7 @@ public class WalletClient {
         return asyncWamp;
     }
 
-    private ListenableFuture<Long> unblindOutValue(String rawtx, Integer pt_idx, Integer pointer) {
+    private ListenableFuture<Long> unblindOutValue(final String rawtx, final Integer pt_idx, final Integer pointer) {
         final Transaction tx = new Transaction(Network.NETWORK, Hex.decode(rawtx));
         final TransactionOutput txOut = tx.getOutput(pt_idx);
 
@@ -284,9 +284,9 @@ public class WalletClient {
         final ListenableFuture<byte[]> nonceRes = scanningKey.ecdh(txOut.getNonceCommitment());
         return Futures.transform(nonceRes, new AsyncFunction<byte[], Long>() {
             @Override
-            public ListenableFuture<Long> apply(byte[] input) throws Exception {
-                byte[] nonceSha256 = Sha256Hash.hash(input);
-                RewindResult result = NativeSecp256k1.rangeProofRewind(
+            public ListenableFuture<Long> apply(final byte[] input) throws Exception {
+                final byte[] nonceSha256 = Sha256Hash.hash(input);
+                final RewindResult result = NativeSecp256k1.rangeProofRewind(
                         nonceSha256,
                         txOut.getCommitment(),
                         txOut.getRangeProof()
@@ -301,10 +301,10 @@ public class WalletClient {
         mConnection.call("http://greenaddressit.com/txs/get_all_unspent_outputs", ArrayList.class,
                 new Wamp.CallHandler() {
                     @Override
-                    public void onResult(Object utxo_result) {
+                    public void onResult(final Object utxo_result) {
                         final ArrayList utxos = (ArrayList) utxo_result;
                         final ArrayList<ListenableFuture<Long>> raw_utxos = new ArrayList<ListenableFuture<Long>>();
-                        for (Object utxo_ : utxos) {
+                        for (final Object utxo_ : utxos) {
                             final Map<?, ?> utxo = (Map<?, ?>) utxo_;
                             final String txhash = (String) utxo.get("txhash");
                             final Integer pt_idx = (Integer) utxo.get("pt_idx");
@@ -314,26 +314,26 @@ public class WalletClient {
                                     "http://greenaddressit.com/txs/get_raw_unspent_output",
                                     String.class, new Wamp.CallHandler() {
                                         @Override
-                                        public void onResult(Object result) {
+                                        public void onResult(final Object result) {
                                             Futures.addCallback(unblindOutValue(
                                                     (String) result,
                                                     pt_idx,
                                                     pointer
                                             ), new FutureCallback<Long>() {
                                                 @Override
-                                                public void onSuccess(@Nullable Long result) {
+                                                public void onSuccess(final @Nullable Long result) {
                                                     utxodata.set(result);
                                                 }
 
                                                 @Override
-                                                public void onFailure(Throwable t) {
+                                                public void onFailure(final Throwable t) {
                                                     utxodata.setException(t);
                                                 }
                                             });
                                         }
 
                                         @Override
-                                        public void onError(String errorUri, String errorDesc) {
+                                        public void onError(final String errorUri, final String errorDesc) {
                                             utxodata.setException(new GAException(errorDesc));
                                         }
                                     }, txhash
@@ -342,7 +342,7 @@ public class WalletClient {
                         }
                         Futures.addCallback(Futures.allAsList(raw_utxos), new FutureCallback<List<Long>>() {
                             @Override
-                            public void onSuccess(@Nullable List<Long> results) {
+                            public void onSuccess(final @Nullable List<Long> results) {
                                 long sum = 0;
                                 for (Long val : results) {
                                     sum += val;
@@ -352,14 +352,14 @@ public class WalletClient {
                             }
 
                             @Override
-                            public void onFailure(Throwable t) {
+                            public void onFailure(final Throwable t) {
                                 result.setException(t);
                             }
                         });
                     }
 
                     @Override
-                    public void onError(String errorUri, String errorDesc) {
+                    public void onError(final String errorUri, final String errorDesc) {
                         result.setException(new GAException(errorDesc));
                     }
                 }

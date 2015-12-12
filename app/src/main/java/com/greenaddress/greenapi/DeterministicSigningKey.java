@@ -39,12 +39,12 @@ public class DeterministicSigningKey implements ISigningWallet {
     }
 
     @Override
-    public ListenableFuture<byte[]> signSchnorrHash(Sha256Hash hash) {
+    public ListenableFuture<byte[]> signSchnorrHash(final Sha256Hash hash) {
         return Futures.immediateFuture(ECKey.fromPrivate(hdWallet.getPrivKey()).signSchnorr(hash));
     }
 
     @Override
-    public ListenableFuture<byte[]> ecdh(byte[] pubkey) {
+    public ListenableFuture<byte[]> ecdh(final byte[] pubkey) {
         return Futures.immediateFuture(ECKey.fromPrivate(hdWallet.getPrivKey()).ecdh(pubkey));
     }
 
