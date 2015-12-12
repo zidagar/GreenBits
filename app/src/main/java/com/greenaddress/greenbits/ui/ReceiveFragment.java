@@ -6,6 +6,7 @@ import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.drawable.BitmapDrawable;
 import android.nfc.Tag;
@@ -17,6 +18,9 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -34,6 +38,8 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.greenaddress.greenbits.ConnectivityObservable;
 import com.greenaddress.greenbits.QrBitmap;
 
+import org.bitcoinj.uri.BitcoinURI;
+
 import nordpol.android.OnDiscoveredTagListener;
 import nordpol.android.TagDispatcher;
 
@@ -45,6 +51,7 @@ public class ReceiveFragment extends GAFragment implements OnDiscoveredTagListen
     private FutureCallback<QrBitmap> onAddress = null;
     @Nullable
     private QrBitmap address = null;
+
     private int curSubaccount;
     private boolean pausing = false;
     private Dialog qrDialog;
@@ -139,7 +146,7 @@ public class ReceiveFragment extends GAFragment implements OnDiscoveredTagListen
                         // Gets a handle to the clipboard service.
                         final ClipboardManager clipboard = (ClipboardManager)
                                 getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
-                        final ClipData clip = ClipData.newPlainText("data", receiveAddress.getText().toString().replace("\n", ""));
+                        final ClipData clip = ClipData.newPlainText("data", address.data);
                         clipboard.setPrimaryClip(clip);
 
                         final CharSequence text = getActivity().getString(R.string.toastOnCopyAddress) + " " + getActivity().getString(R.string.warnOnPaste);
@@ -175,7 +182,15 @@ public class ReceiveFragment extends GAFragment implements OnDiscoveredTagListen
                             bd.setFilterBitmap(false);
                             imageView.setImageDrawable(bd);
 
-                            receiveAddress.setText(String.format("%s\n%s\n%s", result.data.substring(0, 12), result.data.substring(12, 24), result.data.substring(24)));
+                            final String addr = result.data;
+                            final int addrsize = addr.length();
+
+                            if (addrsize > 34) {
+                                receiveAddress.setText(String.format("%s\n%s...%s\n%s", addr.substring(0, 12), addr.substring(12, 17), addr.substring(addrsize - 15, addrsize - 10), addr.substring(addrsize - 10)));
+
+                            } else {
+                                receiveAddress.setText(String.format("%s\n%s\n%s", addr.substring(0, 12), addr.substring(12, 24), addr.substring(24)));
+                            }
 
 
                             imageView.setOnClickListener(new View.OnClickListener() {
@@ -310,6 +325,37 @@ public class ReceiveFragment extends GAFragment implements OnDiscoveredTagListen
     public void tagDiscovered(final Tag t) {
     	Log.d("NFC", "Tag discovered " + t);
     }
-    
-    
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull final MenuItem item) {
+        final int id = item.getItemId();
+        if (id == R.id.action_share) {
+            if (address != null) {
+                if (!address.data.isEmpty()) {
+                    //SHARE intent
+                    final Intent sendIntent = new Intent();
+                    sendIntent.setAction(Intent.ACTION_SEND);
+                    sendIntent.putExtra(Intent.EXTRA_TEXT, BitcoinURI.convertToBitcoinURI(address.data, null, null, null));
+                    sendIntent.setType("text/plain");
+                    startActivity(sendIntent);
+                }
+            }
+
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public void onCreate(final Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setHasOptionsMenu(true);
+    }
+
+    @Override
+    public void onCreateOptionsMenu(final Menu menu, final MenuInflater inflater) {
+        inflater.inflate(R.menu.receive, menu);
+        super.onCreateOptionsMenu(menu, inflater);
+    }
+
 }

@@ -114,7 +114,6 @@ public class TabbedMainActivity extends ActionBarActivity implements ActionBar.T
             @Override
             public void onPageSelected(final int position) {
                 actionBar.setSelectedNavigationItem(position);
-                setIdVisible(position == 0, R.id.action_share);
             }
         });
 
@@ -161,7 +160,6 @@ public class TabbedMainActivity extends ActionBarActivity implements ActionBar.T
         getGAApp().getConnectionObservable().addObserver(this);
         testKickedOut();
         instance = this;
-        setIdVisible(getGAApp().getConnectionObservable().getState() != ConnectivityObservable.State.LOGGEDIN, R.id.action_share);
     }
 
     @Override
@@ -376,7 +374,7 @@ public class TabbedMainActivity extends ActionBarActivity implements ActionBar.T
             setIdVisible(false, R.id.action_sweep);
         }
 
-        return true;
+        return super.onCreateOptionsMenu(menu);
     }
 
     private void setIdVisible(final boolean visible, final int id) {
@@ -421,21 +419,6 @@ public class TabbedMainActivity extends ActionBarActivity implements ActionBar.T
         } else if (id == R.id.action_logout) {
             getGAService().disconnect(false);
             finish();
-            return true;
-        } else if (id == R.id.action_share) {
-            final TextView receiveAddress = (TextView) findViewById(R.id.receiveAddressText);
-            if (receiveAddress != null) {
-                final String address = receiveAddress.getText().toString();
-                if (!address.isEmpty()) {
-                    //SHARE intent
-                    final Intent sendIntent = new Intent();
-                    sendIntent.setAction(Intent.ACTION_SEND);
-                    sendIntent.putExtra(Intent.EXTRA_TEXT, BitcoinURI.convertToBitcoinURI(address.replace("\n", "").replace("\r", ""), null, null, null));
-                    sendIntent.setType("text/plain");
-                    startActivity(sendIntent);
-                }
-            }
-
             return true;
         }
         else if (id == R.id.action_network){
@@ -491,13 +474,10 @@ public class TabbedMainActivity extends ActionBarActivity implements ActionBar.T
 
             switch (index) {
                 case 0:
-                    setIdVisible(true, R.id.action_share);
                     return new ReceiveFragment();
                 case 1:
-                    setIdVisible(false, R.id.action_share);
                     return new MainFragment();
                 case 2:
-                    setIdVisible(false, R.id.action_share);
                     return new SendFragment();
             }
 
