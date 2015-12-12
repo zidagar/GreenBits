@@ -185,9 +185,8 @@ public class ReceiveFragment extends GAFragment implements OnDiscoveredTagListen
                             final String addr = result.data;
                             final int addrsize = addr.length();
 
-                            if (addrsize > 34) {
+                            if (addrsize > 36) {
                                 receiveAddress.setText(String.format("%s\n%s...%s\n%s", addr.substring(0, 12), addr.substring(12, 17), addr.substring(addrsize - 15, addrsize - 10), addr.substring(addrsize - 10)));
-
                             } else {
                                 receiveAddress.setText(String.format("%s\n%s\n%s", addr.substring(0, 12), addr.substring(12, 24), addr.substring(24)));
                             }
