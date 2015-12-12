@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">GreenBits (alpha)</string>
-    <string name="title_activity_main" translatable="false">GreenBits (alpha)</string>
-    <string name="title_activity_first_screen" translatable="false">GreenBits (alpha)</string>
-    <string name="title_activity_mnemonic">Log in (alpha)</string>
-    <string name="title_activity_sign_up">Sign up (alpha)</string>
+    <string name="welcomeGreenBits">Welcome to AlphaBits</string>
+    <string name="SettingsAppName">AlphaBits</string>
+    <string name="greenaddress_headline">the easier, safer and faster wallet</string>
+    <string name="app_name" translatable="false">AlphaBits</string>
+    <string name="title_activity_main" translatable="false">AlphaBits</string>
+    <string name="title_activity_first_screen" translatable="false">AlphaBits</string>
+    <string name="title_activity_mnemonic">Log in (alpha elements)</string>
+    <string name="title_activity_sign_up">Sign up (alpha elements)</string>
     <string name="noBalanceSecondLine">Where to <a href="https://alpha-faucet.elementsproject.org/">get</a> some testcoins</string>
+    <string name="noBalanceFirstLine">Getting <a href="https://github.com/ElementsProject/elementsproject.github.io">started</a> with Elements project</string>
+    <string name="enableSPVSummary">Simple Payment Verification allows trusting your transactions and balance thanks to synchronization with Alpha network. It adds bandwidth and processing requirements, so you may want to switch it off if on poor connections or low end phones.</string>
+    <string name="changingRequiresRestartText">Changing this value requires restarting the app to take full effect. Please restart AlphaBits. </string>
 </resources>
