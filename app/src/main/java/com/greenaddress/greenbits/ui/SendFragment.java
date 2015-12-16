@@ -397,7 +397,8 @@ public class SendFragment extends GAFragment {
                 }
 
                 final GaService gaService = getGAService();
-                final boolean validAddress = gaService.isValidAddress(recipient);
+                // FIXME alpha address validation
+                final boolean validAddress = true; // gaService.isValidAddress(recipient);
 
                 final boolean validAmount =
                         !(amount.compareTo(Coin.ZERO) <= 0) ||

@@ -4,6 +4,7 @@ import android.util.Base64;
 import android.util.Log;
 
 import com.google.common.base.Function;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -15,15 +16,21 @@ import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
 
 import org.bitcoin.NativeSecp256k1;
+import org.bitcoin.NativeSecp256k1Util;
 import org.bitcoin.RewindResult;
 import org.bitcoinj.core.Address;
+import org.bitcoinj.core.AddressFormatException;
 import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.ECKey;
+import org.bitcoinj.core.NetworkParameters;
+import org.bitcoinj.core.ScriptException;
 import org.bitcoinj.core.Sha256Hash;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.TransactionInput;
 import org.bitcoinj.core.TransactionOutput;
 import org.bitcoinj.core.Utils;
+import org.bitcoinj.core.VersionedChecksummedBytes;
+import org.bitcoinj.core.WrongNetworkException;
 import org.bitcoinj.crypto.ChildNumber;
 import org.bitcoinj.crypto.DeterministicKey;
 import org.bitcoinj.crypto.HDKeyDerivation;
@@ -31,6 +38,8 @@ import org.bitcoinj.crypto.MnemonicCode;
 import org.bitcoinj.crypto.PBKDF2SHA512;
 import org.bitcoinj.crypto.TransactionSignature;
 import org.bitcoinj.script.Script;
+import org.bitcoinj.script.ScriptBuilder;
+import org.bitcoinj.script.ScriptChunk;
 import org.codehaus.jackson.map.MappingJsonFactory;
 import org.spongycastle.crypto.InvalidCipherTextException;
 import org.spongycastle.crypto.digests.SHA512Digest;
@@ -52,6 +61,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import javax.annotation.Nullable;
 import javax.crypto.Mac;
@@ -62,7 +72,6 @@ import de.tavendo.autobahn.WampConnection;
 import de.tavendo.autobahn.WampOptions;
 import de.tavendo.autobahn.secure.WebSocket;
 import de.tavendo.autobahn.secure.WebSocketMessage;
-
 
 public class WalletClient {
 
@@ -76,6 +85,10 @@ public class WalletClient {
     private WampConnection mConnection;
     private LoginData loginData;
     private ISigningWallet hdWallet;
+    private List<Utxo> utxos = new ArrayList<Utxo>();
+    @Nullable
+    private Map<Integer, DeterministicKey> gaDeterministicKeys;
+    private byte[] gaitPath;
 
     private String mnemonics = null;
 
@@ -273,7 +286,7 @@ public class WalletClient {
         return asyncWamp;
     }
 
-    private ListenableFuture<Long> unblindOutValue(final String rawtx, final Integer pt_idx, final Integer pointer) {
+    private ListenableFuture<RewindResult> unblindOutValue(final String rawtx, final Integer pt_idx, final Integer pointer) {
         final Transaction tx = new Transaction(Network.NETWORK, Hex.decode(rawtx));
         final TransactionOutput txOut = tx.getOutput(pt_idx);
 
@@ -282,16 +295,17 @@ public class WalletClient {
                 .deriveChildKey(new ChildNumber(pointer, true));
 
         final ListenableFuture<byte[]> nonceRes = scanningKey.ecdh(txOut.getNonceCommitment());
-        return Futures.transform(nonceRes, new AsyncFunction<byte[], Long>() {
+        return Futures.transform(nonceRes, new AsyncFunction<byte[], RewindResult>() {
             @Override
-            public ListenableFuture<Long> apply(final byte[] input) throws Exception {
+            public ListenableFuture<RewindResult> apply(final byte[] input) throws Exception {
                 final byte[] nonceSha256 = Sha256Hash.hash(input);
                 final RewindResult result = NativeSecp256k1.rangeProofRewind(
                         nonceSha256,
                         txOut.getCommitment(),
                         txOut.getRangeProof()
                 );
-                return Futures.immediateFuture(result.getValue());
+
+                return Futures.immediateFuture(result);
             }
         });
     }
@@ -302,9 +316,10 @@ public class WalletClient {
                 new Wamp.CallHandler() {
                     @Override
                     public void onResult(final Object utxo_result) {
-                        final ArrayList utxos = (ArrayList) utxo_result;
+                        final ArrayList curUtxos = (ArrayList) utxo_result;
                         final ArrayList<ListenableFuture<Long>> raw_utxos = new ArrayList<ListenableFuture<Long>>();
-                        for (final Object utxo_ : utxos) {
+                        utxos.clear();
+                        for (final Object utxo_ : curUtxos) {
                             final Map<?, ?> utxo = (Map<?, ?>) utxo_;
                             final String txhash = (String) utxo.get("txhash");
                             final Integer pt_idx = (Integer) utxo.get("pt_idx");
@@ -314,15 +329,22 @@ public class WalletClient {
                                     "http://greenaddressit.com/txs/get_raw_unspent_output",
                                     String.class, new Wamp.CallHandler() {
                                         @Override
-                                        public void onResult(final Object result) {
+                                        public void onResult(final Object rawtx) {
                                             Futures.addCallback(unblindOutValue(
-                                                    (String) result,
+                                                    (String) rawtx,
                                                     pt_idx,
                                                     pointer
-                                            ), new FutureCallback<Long>() {
+                                            ), new FutureCallback<RewindResult>() {
                                                 @Override
-                                                public void onSuccess(final @Nullable Long result) {
-                                                    utxodata.set(result);
+                                                public void onSuccess(final @Nullable RewindResult result) {
+                                                    utxodata.set(result.getValue());
+                                                    utxos.add(new Utxo(
+                                                            txhash,
+                                                            pt_idx,
+                                                            pointer,
+                                                            result,
+                                                            new Transaction(Network.NETWORK, Hex.decode((String) rawtx))
+                                                    ));
                                                 }
 
                                                 @Override
@@ -600,6 +622,7 @@ public class WalletClient {
                 }
 
                 m_notificationHandler.onConnectionClosed(code);
+                gaDeterministicKeys = null;
                 asyncWamp.setException(new GAException(s));
 
             }
@@ -768,6 +791,10 @@ public class WalletClient {
                                 asyncWamp.setException(new LoginFailed());
                             } else {
                                 WalletClient.this.loginData = new LoginData((Map) loginData);
+                                WalletClient.this.gaitPath = Hex.decode(
+                                        WalletClient.this.loginData.gait_path
+                                );
+                                gaDeterministicKeys = new HashMap<>();
                                 WalletClient.this.hdWallet = deterministicKey;
 
                                 asyncWamp.set(WalletClient.this.loginData);
@@ -1006,22 +1033,365 @@ public class WalletClient {
         }, es);
     }
 
+
+
     public ListenableFuture<PreparedTransaction> prepareTx(final long satoshis, final String destAddress, final String feesMode, final Map<String, Object> privateData) {
-        final SettableFuture<PreparedTransaction.PreparedData> asyncWamp = SettableFuture.create();
-        mConnection.call("http://greenaddressit.com/vault/prepare_tx", Map.class, new Wamp.CallHandler() {
+        if (Network.isCTEnabled) {
+            return prepareAlphaTx(
+                    privateData.get("subaccount") != null ? (Integer)privateData.get("subaccount") : 0,
+                    satoshis, destAddress
+            );
+        } else {
+            final SettableFuture<PreparedTransaction.PreparedData> prepared = SettableFuture.create();
+            mConnection.call("http://greenaddressit.com/vault/prepare_tx", Map.class, new Wamp.CallHandler() {
+                @Override
+                public void onResult(final Object preparedMap) {
+                    prepared.set(new PreparedTransaction.PreparedData((Map) preparedMap, privateData, loginData.subaccounts, httpClient));
+                }
+
+                @Override
+                public void onError(final String errUri, final String errDesc) {
+                    prepared.setException(new GAException(errDesc));
+                }
+            }, satoshis, destAddress, feesMode, privateData);
+            return processPreparedTx(prepared);
+        }
+    }
+
+    private DeterministicKey getKeyPath(final DeterministicKey node) {
+        int childNum;
+        DeterministicKey nodePath = node;
+        for (int i = 0; i < 32; ++i) {
+            int b1 = gaitPath[i * 2];
+            if (b1 < 0) {
+                b1 = 256 + b1;
+            }
+            int b2 = gaitPath[i * 2 + 1];
+            if (b2 < 0) {
+                b2 = 256 + b2;
+            }
+            childNum = b1 * 256 + b2;
+            nodePath = HDKeyDerivation.deriveChildKey(nodePath, new ChildNumber(childNum));
+        }
+        return nodePath;
+    }
+
+    public DeterministicKey getGaDeterministicKey(final Integer subaccount) {
+        if (gaDeterministicKeys.keySet().contains(subaccount)) {
+            return gaDeterministicKeys.get(subaccount);
+        }
+
+        final DeterministicKey nodePath = getKeyPath(HDKeyDerivation.deriveChildKey(new DeterministicKey(
+                new ImmutableList.Builder<ChildNumber>().build(),
+                Hex.decode(Network.depositChainCode),
+                ECKey.fromPublicOnly(Hex.decode(Network.depositPubkey)).getPubKeyPoint(),
+                null, null), new ChildNumber(subaccount != 0?3:1)));
+
+        final DeterministicKey key = subaccount == 0 ? nodePath : HDKeyDerivation.deriveChildKey(nodePath, new ChildNumber(subaccount, false));
+        gaDeterministicKeys.put(subaccount, key);
+        return key;
+    }
+
+    private ListenableFuture<PreparedTransaction> prepareAlphaTx(final int subaccount, final long satoshis, final String destAddress) {
+        final SettableFuture<PreparedTransaction> ret = SettableFuture.create();
+        final ArrayList<Utxo> needed_utxo = new ArrayList<>();
+        long collected_value_ = 0;
+        int i = 0;
+        final long fee = 10000;
+        while (collected_value_ < satoshis + fee && i < utxos.size()) {
+            collected_value_ += utxos.get(i).getRewindResult().getValue();
+            needed_utxo.add(utxos.get(i));
+            i += 1;
+        }
+        if (collected_value_ < satoshis + fee) {
+            ret.setException(new GAException("Not enough funds"));
+            return ret;
+        }
+        final long collected_value = collected_value_;
+        final SettableFuture<Map> address = SettableFuture.create();
+        mConnection.call("http://greenaddressit.com/vault/fund", Map.class, new Wamp.CallHandler() {
             @Override
-            public void onResult(final Object prepared) {
-                asyncWamp.set(new PreparedTransaction.PreparedData((Map)prepared, privateData, loginData.subaccounts, httpClient));
+            public void onResult(final Object address_) {
+                address.set((Map) address_);
             }
 
             @Override
             public void onError(final String errUri, final String errDesc) {
-                asyncWamp.setException(new GAException(errDesc));
+                address.setException(new GAException(errDesc));
             }
-        }, satoshis, destAddress, feesMode, privateData);
+        }, subaccount, true);
+        ListenableFuture<ScanningKeyAndScriptAndPrevoutScripts> scanning_key = Futures.transform(address, new AsyncFunction<Map, ScanningKeyAndScriptAndPrevoutScripts>() {
+            @Override
+            public ListenableFuture<ScanningKeyAndScriptAndPrevoutScripts> apply(final Map fundResult) throws Exception {
+                return Futures.transform(hdWallet.deriveChildKey(new ChildNumber(5, true)).deriveChildKey(
+                        new ChildNumber((Integer) fundResult.get("pointer"), true)).getPubKey(), new Function<DeterministicKey, ScanningKeyAndScriptAndPrevoutScripts>() {
+                            @Nullable
+                            @Override
+                            public ScanningKeyAndScriptAndPrevoutScripts apply(final @Nullable DeterministicKey key) {
+                                byte[] script = Hex.decode((String)fundResult.get("script"));
+                                return new ScanningKeyAndScriptAndPrevoutScripts(
+                                        key, script
+                                );
+                            }
+                        }
+                );
+            }
+        });
+        for (int j_ = 0; j_ < needed_utxo.size(); ++j_) {
+            final int j = j_;
+            scanning_key = Futures.transform(scanning_key, new AsyncFunction<ScanningKeyAndScriptAndPrevoutScripts, ScanningKeyAndScriptAndPrevoutScripts>() {
+                @Override
+                public ListenableFuture<ScanningKeyAndScriptAndPrevoutScripts> apply(final ScanningKeyAndScriptAndPrevoutScripts input) throws Exception {
+                    final ArrayList<ECKey> keys = new ArrayList<ECKey>(2);
+                    int pointer = needed_utxo.get(j).getPointer();
+                    keys.add(
+                            HDKeyDerivation.deriveChildKey(
+                                    getGaDeterministicKey(subaccount),
+                                    new ChildNumber(pointer)
+                            )
+                    );
+                    final SettableFuture<ScanningKeyAndScriptAndPrevoutScripts> res = SettableFuture.create();
+                    Futures.addCallback(hdWallet.deriveChildKey(new ChildNumber(1, false)).deriveChildKey(new ChildNumber(pointer, false)).getPubKey(),
+                            new FutureCallback<DeterministicKey>() {
+                                @Override
+                                public void onSuccess(@Nullable DeterministicKey result) {
+                                    keys.add(ECKey.fromPublicOnly(result.getPubKey()));
+                                    Script redeemScript = new Script(
+                                            Script.createMultiSigOutputScript(
+                                                    2, keys
+                                            )
+                                    );
+                                    input.prevoutScripts.add(redeemScript);
+                                    res.set(input);
+                                }
 
-        return processPreparedTx(asyncWamp);
+                                @Override
+                                public void onFailure(Throwable t) {
+                                    res.setException(t);
+                                }
+                            }
+                    );
+                    return res;
+                }
+            });
+        }
+        Futures.addCallback(scanning_key, new FutureCallback<ScanningKeyAndScriptAndPrevoutScripts>() {
+            @Override
+            public void onSuccess(@Nullable ScanningKeyAndScriptAndPrevoutScripts result) {
+                final Transaction tx = new Transaction(Network.NETWORK);
+                tx.setFeeCT(BigInteger.valueOf(fee));
+                final TxOutData[] outs = new TxOutData[2];
+                final Random rand = new Random();
+                int change_idx = rand.nextInt(2);
+                outs[change_idx] = new TxOutData(
+                        Coin.valueOf(collected_value - satoshis - fee),
+                        Network.NETWORK.getP2SHHeader(),
+                        result.key.getPubKey(),
+                        Utils.sha256hash160(result.script)
+                );
+                ConfidentialAddress rcpt;
+                try {
+                    rcpt = new ConfidentialAddress(destAddress);
+                } catch (AddressFormatException e) {
+                    ret.setException(e);
+                    return;
+                }
+                outs[1-change_idx] = new TxOutData(
+                        Coin.valueOf(satoshis),
+                        rcpt.getBytes()[0],
+                        Arrays.copyOfRange(rcpt.getBytes(), 1, 34),
+                        Arrays.copyOfRange(rcpt.getBytes(), 34, rcpt.getBytes().length)
+                );
+                byte[][] blindedValues = new byte[needed_utxo.size()][32];
+                for (int i = 0; i < needed_utxo.size(); ++i) {
+                    blindedValues[i] = needed_utxo.get(i).getRewindResult().getBlindingFactor();
+                    tx.addInput(
+                            Sha256Hash.wrap(Hex.decode(needed_utxo.get(i).getTxhash())),
+                            needed_utxo.get(i).getPtIdx(),
+                            new Script(TransactionInput.EMPTY_ARRAY)
+                    );
+                }
+                for (int i = 0; i < outs.length; ++i) {
+                    byte[][] newBlindedValues = new byte[blindedValues.length + 1][32];
+                    final byte[] nextBlindingFactor;
+                    if (i == outs.length - 1) {
+                        try {
+                            nextBlindingFactor = NativeSecp256k1.pedersenBlindSum(
+                                    blindedValues,
+                                    needed_utxo.size()
+                            );
+                        } catch (NativeSecp256k1Util.AssertFailException e) {
+                            ret.setException(e);
+                            return;
+                        }
+                    } else {
+                        SecureRandom secureRandom = new SecureRandom();
+                        nextBlindingFactor = new byte[32];
+                        secureRandom.nextBytes(nextBlindingFactor);
+                    }
+                    for (int j = 0; j < blindedValues.length; ++j) {
+                        newBlindedValues[j] = blindedValues[j];
+                    }
+                    newBlindedValues[blindedValues.length] = nextBlindingFactor;
+                    blindedValues = newBlindedValues;
+                    byte[] commitment;
+                    try {
+                        commitment = NativeSecp256k1.pedersenCommit(
+                                outs[i].value.longValue(),
+                                nextBlindingFactor
+                        );
+                    } catch (NativeSecp256k1Util.AssertFailException e) {
+                        ret.setException(e);
+                        return;
+                    }
+                    Address addr;
+                    try {
+                        addr = new Address(Network.NETWORK, outs[i].version, outs[i].hash);
+                    } catch (WrongNetworkException e) {
+                        ret.setException(e);
+                        return;
+                    }
+                    ECKey ephemeralKey = new ECKey();
+                    byte[] nonce;
+                    try {
+                        nonce = NativeSecp256k1.createECDHSecret(
+                                ephemeralKey.getSecretBytes(),
+                                outs[i].scanningPubKey
+                        );
+                    } catch (NativeSecp256k1Util.AssertFailException e) {
+                        ret.setException(e);
+                        return;
+                    }
+                    nonce = Sha256Hash.of(nonce).getBytes();
+                    byte[] rangeProof;
+                    try {
+                        rangeProof = NativeSecp256k1.rangeProofSign(
+                                commitment,
+                                nextBlindingFactor,
+                                nonce,
+                                outs[i].value.longValue()
+                        );
+                    } catch (NativeSecp256k1Util.AssertFailException e) {
+                        ret.setException(e);
+                        return;
+                    }
+                    TransactionOutput to = new TransactionOutput(
+                            Network.NETWORK,
+                            tx,
+                            commitment,
+                            rangeProof,
+                            ephemeralKey.getPubKey(),
+                            addr
+                    );
+                    tx.addOutput(to);
+                }
+                ret.set(new PreparedTransaction(
+                        tx,
+                        needed_utxo,
+                        result.prevoutScripts
+                ));
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                ret.setException(t);
+            }
+        });
+        return ret;
     }
+
+    public ListenableFuture<Transaction> signConfidentialTransaction(final PreparedTransaction tx) {
+        SettableFuture<Transaction> tx_ = SettableFuture.create();
+        tx_.set(tx.tx);
+        ListenableFuture<Transaction> ret = tx_;
+        for (int i_ = 0; i_ < tx.tx.getInputs().size(); ++i_) {
+            final int i = i_;
+            for (int j = 0; j < tx.tx.getInputs().size(); ++j) {
+                // this is slightly confusing, but alphad requires
+                // all ins to serialize with the same prevout,
+                // even though this prevout is connected to only a
+                // single input
+                tx.tx.getInput(j).prevOut = tx.prev_utxos.get(i)
+                        .getTx().getOutput(tx.prev_utxos.get(i).getPtIdx());
+            }
+            final Sha256Hash hash = tx.tx.hashForCTSignature(
+                    i, tx.prevout_scripts.get(i).getProgram()
+            );
+            final ISigningWallet key = hdWallet.deriveChildKey(
+                    new ChildNumber(1)
+            ).deriveChildKey(
+                    new ChildNumber(tx.prev_utxos.get(i).getPointer())
+            );
+            ret = Futures.transform(ret, new AsyncFunction<Transaction, Transaction>() {
+                @Override
+                public ListenableFuture<Transaction> apply(Transaction input) throws Exception {
+                    return Futures.transform(key.signSchnorrHash(hash), new Function<byte[], Transaction>() {
+                        @Nullable
+                        @Override
+                        public Transaction apply(@Nullable byte[] input) {
+                            ArrayList<TransactionSignature> signature = new ArrayList<>(1);
+                            signature.add(new TransactionSignature(input, Transaction.SigHash.ALL, false));
+                            Script scriptSig = ScriptBuilder.createP2SHMultiSigInputScript(
+                                    signature,
+                                    tx.prevout_scripts.get(i)
+                            );
+                            List<ScriptChunk> chunks = scriptSig.getChunks();
+                            ScriptBuilder builder = new ScriptBuilder();
+                            builder.smallNum(0);  // Work around a bug in CHECKMULTISIG that is now a required part of the protocol.
+                            byte[] zero = { 0 };
+                            // re-build the script, adding zero before our signature for replacing by backend
+                            builder.data(zero);
+                            builder.data(chunks.get(1).data);
+                            builder.data(chunks.get(2).data);
+                            tx.tx.getInput(i).setScriptSig(
+                                    builder.build()
+                            );
+                            return tx.tx;
+                        }
+                    });
+                }
+            });
+
+        }
+        return ret;
+    }
+
+    private class ConfidentialAddress extends VersionedChecksummedBytes {
+
+        public ConfidentialAddress(String encoded) throws AddressFormatException {
+            super(encoded);
+        }
+
+        public byte[] getBytes() {
+            return bytes;
+        }
+
+    };
+
+    private class ScanningKeyAndScriptAndPrevoutScripts {
+        public DeterministicKey key;
+        public byte[] script;
+        public ArrayList<Script> prevoutScripts = new ArrayList<>();
+
+        public ScanningKeyAndScriptAndPrevoutScripts(DeterministicKey key, byte[] script) {
+            this.key = key;
+            this.script = script;
+        }
+    };
+
+    private class TxOutData {
+        public Coin value;
+        public int version;
+        public byte[] scanningPubKey;
+        public byte[] hash;
+
+        public TxOutData(Coin value, int version, byte[] scanningPubKey, byte[] hash) {
+            this.value = value;
+            this.version = version;
+            this.scanningPubKey = scanningPubKey;
+            this.hash = hash;
+        }
+    };
 
     private ListenableFuture<PreparedTransaction> processPreparedTx(final ListenableFuture<PreparedTransaction.PreparedData> pt) {
         return Futures.transform(pt, new Function<PreparedTransaction.PreparedData, PreparedTransaction>() {
@@ -1049,9 +1419,7 @@ public class WalletClient {
     }
 
     public ListenableFuture<PreparedTransaction> preparePayreq(final Coin amount, Map<?, ?> data, final Map<String, Object> privateData) {
-
         final SettableFuture<PreparedTransaction.PreparedData> asyncWamp = SettableFuture.create();
-
 
         final Map dataClone = new HashMap<>();
 
@@ -1113,6 +1481,23 @@ public class WalletClient {
                 asyncWamp.setException(new GAException(s2));
             }
         }, signatures, TfaData);
+
+        return asyncWamp;
+    }
+
+    public ListenableFuture<String> sendRawTransaction(final Transaction tx) {
+        final SettableFuture<String> asyncWamp = SettableFuture.create();
+        mConnection.call("http://greenaddressit.com/vault/send_raw_tx", String.class, new Wamp.CallHandler() {
+            @Override
+            public void onResult(final Object o) {
+                asyncWamp.set(o.toString());
+            }
+
+            @Override
+            public void onError(final String s, final String s2) {
+                asyncWamp.setException(new GAException(s2));
+            }
+        }, new String(Hex.encode(tx.bitcoinSerialize())));
 
         return asyncWamp;
     }

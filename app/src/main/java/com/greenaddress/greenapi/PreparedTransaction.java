@@ -6,6 +6,7 @@ import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
 
 import org.bitcoinj.core.Transaction;
+import org.bitcoinj.script.Script;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.spongycastle.util.encoders.Hex;
@@ -19,6 +20,10 @@ import java.util.Map;
 
 public class PreparedTransaction {
 
+    public final Transaction tx;
+    public final List<Utxo> prev_utxos;
+    public final List<Script> prevout_scripts;
+
     public final Integer change_pointer;
     public final Integer subaccount_pointer;
     public final Boolean requires_2factor;
@@ -27,6 +32,18 @@ public class PreparedTransaction {
     public final Map<String, Transaction> prevoutRawTxs = new HashMap<>();
     public final String twoOfThreeBackupChaincode;
     public final String twoOfThreeBackupPubkey;
+
+    public PreparedTransaction(final Transaction tx, final List<Utxo> prev_utxos, final List<Script> prevout_scripts) {
+        this.tx = tx;
+        this.prev_utxos = prev_utxos;
+        this.prevout_scripts = prevout_scripts;
+        this.change_pointer = null;
+        this.subaccount_pointer = null;
+        this.requires_2factor = false;
+        this.decoded = null;
+        this.twoOfThreeBackupChaincode = null;
+        this.twoOfThreeBackupPubkey = null;
+    }
 
     public static class PreparedData {
 
@@ -50,6 +67,9 @@ public class PreparedTransaction {
     }
 
     public PreparedTransaction(final PreparedData pte) {
+        this.tx = null;
+        this.prev_utxos = null;
+        this.prevout_scripts = null;
 
         String twoOfThreeBackupChaincode = null, twoOfThreeBackupPubkey = null;
         if (pte.privateData != null && pte.privateData.get("subaccount") != null && !pte.privateData.get("subaccount").equals(0)) {

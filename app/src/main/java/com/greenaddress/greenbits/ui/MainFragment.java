@@ -479,7 +479,8 @@ public class MainFragment extends GAFragment implements Observer {
 
                         final GaService gaService = getGAService();
                         final ConnectivityObservable connObservable = getGAApp().getConnectionObservable();
-                        if (gaService.getSharedPreferences("SPV", FragmentActivity.MODE_PRIVATE).getBoolean("enabled", true)) {
+                        // FIXME alpha spv
+                        if (false && gaService.getSharedPreferences("SPV", FragmentActivity.MODE_PRIVATE).getBoolean("enabled", true)) {
                             gaService.spv.setUpSPV();
                             if (!gaService.spv.getIsSpvSyncing()) {
                                 // download up to 468kB (80bytes * 6000 blocks) of headers without asking if users wants to wait for WiFi, otherwise ask

@@ -61,7 +61,8 @@ public class SPV {
 
     public void startIfEnabled() {
         isSpvSyncing = false;
-        if (gaService.getSharedPreferences("SPV", Context.MODE_PRIVATE).getBoolean("enabled", true)) {
+        // FIXME alpha spv
+        if (false && gaService.getSharedPreferences("SPV", Context.MODE_PRIVATE).getBoolean("enabled", true)) {
             setUpSPV();
 
             if (startSpvAfterInit) {
@@ -291,6 +292,11 @@ public class SPV {
     }
     @NonNull
     public ListenableFuture<Coin> validateTxAndCalculateFeeOrAmount(@NonNull final PreparedTransaction transaction, @NonNull final String recipientStr, @NonNull final Coin amount) {
+        if (transaction.tx != null) {
+            // FIXME implement alpha value calculation
+            return Futures.immediateFuture(Coin.ZERO);
+        }
+
         Address recipientNonFinal = null;
         try {
             recipientNonFinal = new Address(Network.NETWORK, recipientStr);

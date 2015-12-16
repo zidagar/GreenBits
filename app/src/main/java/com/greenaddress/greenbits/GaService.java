@@ -36,6 +36,7 @@ import org.bitcoinj.core.AddressFormatException;
 import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.Sha256Hash;
+import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.TransactionOutput;
 import org.bitcoinj.core.Utils;
 import org.bitcoinj.crypto.ChildNumber;
@@ -100,7 +101,6 @@ public class GaService extends Service {
     @Nullable
     private Map<Integer, DeterministicKey> gaDeterministicKeys;
     private String receivingId;
-    private byte[] gaitPath;
     @Nullable
     private Map<?, ?> twoFacConfig;
     @NonNull private final GaObservable twoFacConfigObservable = new GaObservable();
@@ -124,7 +124,6 @@ public class GaService extends Service {
             fiatExchange = result.exchange;
             subaccounts = result.subaccounts;
             receivingId = result.receiving_id;
-            gaitPath = Hex.decode(result.gait_path);
 
             balanceObservables.put(0, new GaObservable());
             updateBalance(0);
@@ -137,8 +136,6 @@ public class GaService extends Service {
             getAvailableTwoFacMethods();
 
             spv.resetUnspent();
-
-            gaDeterministicKeys = new HashMap<>();
 
             spv.startIfEnabled();
             connectionObservable.setState(ConnectivityObservable.State.LOGGEDIN);
@@ -282,8 +279,6 @@ public class GaService extends Service {
 
             @Override
             public void onConnectionClosed(final int code) {
-                gaDeterministicKeys = null;
-
                 if (code == 4000) {
                     connectionObservable.setForcedLoggedOut();
                 }
@@ -319,7 +314,7 @@ public class GaService extends Service {
         final byte[] gotP2SH = scriptHash.getPubKeyHash();
 
         final List<ECKey> pubkeys = new ArrayList<>();
-        final DeterministicKey gaWallet = getGaDeterministicKey(subaccount);
+        final DeterministicKey gaWallet = client.getGaDeterministicKey(subaccount);
         final ECKey gaKey = HDKeyDerivation.deriveChildKey(gaWallet, new ChildNumber(pointer));
         pubkeys.add(gaKey);
 
@@ -366,40 +361,6 @@ public class GaService extends Service {
     @NonNull
     public ListenableFuture<Boolean> verifySpendableBy(@NonNull final TransactionOutput txOutput, final Integer subaccount, final Integer pointer) {
         return verifyP2SHSpendableBy(txOutput.getScriptPubKey(), subaccount, pointer);
-    }
-
-    private DeterministicKey getKeyPath(final DeterministicKey node) {
-        int childNum;
-        DeterministicKey nodePath = node;
-        for (int i = 0; i < 32; ++i) {
-            int b1 = gaitPath[i * 2];
-            if (b1 < 0) {
-                b1 = 256 + b1;
-            }
-            int b2 = gaitPath[i * 2 + 1];
-            if (b2 < 0) {
-                b2 = 256 + b2;
-            }
-            childNum = b1 * 256 + b2;
-            nodePath = HDKeyDerivation.deriveChildKey(nodePath, new ChildNumber(childNum));
-        }
-        return nodePath;
-    }
-
-    private DeterministicKey getGaDeterministicKey(final Integer subaccount) {
-        if (gaDeterministicKeys.keySet().contains(subaccount)) {
-            return gaDeterministicKeys.get(subaccount);
-        }
-
-        final DeterministicKey nodePath = getKeyPath(HDKeyDerivation.deriveChildKey(new DeterministicKey(
-                new ImmutableList.Builder<ChildNumber>().build(),
-                Hex.decode(Network.depositChainCode),
-                ECKey.fromPublicOnly(Hex.decode(Network.depositPubkey)).getPubKeyPoint(),
-                null, null), new ChildNumber(subaccount != 0?3:1)));
-
-        final DeterministicKey key = subaccount == 0 ? nodePath : HDKeyDerivation.deriveChildKey(nodePath, new ChildNumber(subaccount, false));
-        gaDeterministicKeys.put(subaccount, key);
-        return key;
     }
 
     @NonNull
@@ -566,13 +527,22 @@ public class GaService extends Service {
 
     @NonNull
     public ListenableFuture<String> signAndSendTransaction(@NonNull final PreparedTransaction prepared, final Object twoFacData) {
-        return Futures.transform(client.signTransaction(prepared, false), new AsyncFunction<List<String>, String>() {
-            @NonNull
-            @Override
-            public ListenableFuture<String> apply(@NonNull final List<String> input) throws Exception {
-                return client.sendTransaction(input, twoFacData);
-            }
-        }, es);
+        if (Network.isCTEnabled) {
+            return Futures.transform(client.signConfidentialTransaction(prepared), new AsyncFunction<Transaction, String>() {
+                @Override
+                public ListenableFuture<String> apply(Transaction input) throws Exception {
+                    return client.sendRawTransaction(input);
+                }
+            });
+        } else {
+            return Futures.transform(client.signTransaction(prepared, false), new AsyncFunction<List<String>, String>() {
+                @NonNull
+                @Override
+                public ListenableFuture<String> apply(@NonNull final List<String> input) throws Exception {
+                    return client.sendTransaction(input, twoFacData);
+                }
+            }, es);
+        }
     }
 
     @NonNull
