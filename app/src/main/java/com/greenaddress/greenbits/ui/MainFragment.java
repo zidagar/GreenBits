@@ -100,7 +100,8 @@ public class MainFragment extends GAFragment implements Observer {
                     final boolean external_social = ep.get("social_destination") != null &&
                             ((Integer) ep.get("script_type")) != P2SH_FORTIFIED_OUT;
                     if (!external_social) {
-                        amount += Long.valueOf((String) ep.get("value"));
+                        if (ep.get("value") != null)
+                            amount += Long.valueOf((String) ep.get("value"));
                         if (!((Boolean) ep.get("is_spent"))) {
                             isSpent = false;
                         }
@@ -111,7 +112,8 @@ public class MainFragment extends GAFragment implements Observer {
                         receivedOn += ", " + ep.get("ad");
                     }
                 } else {
-                    amount -= Long.valueOf((String) ep.get("value"));
+                    if (ep.get("value") != null)
+                        amount -= Long.valueOf((String) ep.get("value"));
                 }
             }
         }

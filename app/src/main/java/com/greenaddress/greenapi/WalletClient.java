@@ -1198,7 +1198,7 @@ public class WalletClient {
                 }
                 outs[1-change_idx] = new TxOutData(
                         Coin.valueOf(satoshis),
-                        rcpt.getBytes()[0],
+                        rcpt.getBytes()[0] & 0xff,
                         Arrays.copyOfRange(rcpt.getBytes(), 1, 34),
                         Arrays.copyOfRange(rcpt.getBytes(), 34, rcpt.getBytes().length)
                 );
