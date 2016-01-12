@@ -61,8 +61,7 @@ public class SPV {
 
     public void startIfEnabled() {
         isSpvSyncing = false;
-        // FIXME alpha spv
-        if (false && gaService.getSharedPreferences("SPV", Context.MODE_PRIVATE).getBoolean("enabled", true)) {
+        if (gaService.getSharedPreferences("SPV", Context.MODE_PRIVATE).getBoolean("enabled", true)) {
             setUpSPV();
 
             if (startSpvAfterInit) {
@@ -70,7 +69,6 @@ public class SPV {
             }
         }
         startSpvAfterInit = false;
-        updateUnspentOutputs();
     }
 
     private void addUtxoToValues(final TransactionOutPoint txOutpoint, final int subaccount, final Coin addValue) {
@@ -446,6 +444,7 @@ public class SPV {
                 t.printStackTrace();
             }
         });
+        updateUnspentOutputs();
     }
     public synchronized void setUpSPV(){
         //teardownSPV must be called if SPV already exists
