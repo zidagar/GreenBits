@@ -88,7 +88,7 @@ public class MainFragment extends GAFragment implements Observer {
                     //e.printStackTrace();
                 }
 
-                if (social_destination != null) {
+                if (social_destination != null && social_destination.get("type") != null) {
                     counterparty = social_destination.get("type").equals("voucher") ?
                             "Voucher" : (String) social_destination.get("name");
                 } else {
