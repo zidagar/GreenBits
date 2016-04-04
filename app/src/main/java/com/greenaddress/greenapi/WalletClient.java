@@ -91,6 +91,7 @@ public class WalletClient {
     private byte[] gaitPath;
 
     private String mnemonics = null;
+    private Integer curBlock = null;
 
     public WalletClient(final INotificationHandler notificationHandler, final ListeningExecutorService es) {
         this.m_notificationHandler = notificationHandler;
@@ -114,15 +115,15 @@ public class WalletClient {
         hmac.doFinal(step2, 0);
         return step2;
     }
-    
-    private static byte[] extendedKeyToPath(final byte[] publicKey, final byte[] chainCode) {    	
+
+    private static byte[] extendedKeyToPath(final byte[] publicKey, final byte[] chainCode) {
         HMac hmac = new HMac(new SHA512Digest());
         hmac.init(new KeyParameter("GreenAddress.it HD wallet path".getBytes()));
         hmac.update(chainCode, 0, chainCode.length);
         hmac.update(publicKey, 0, publicKey.length);
         byte[] step2 = new byte[64];
         hmac.doFinal(step2, 0);
-        return step2;    	
+        return step2;
     }
 
     public String getMnemonics() {
@@ -210,7 +211,7 @@ public class WalletClient {
                 asyncWamp, registrationToLogin, es), loginToSetPathPostLogin, es);
     }
 
-    
+
     public ListenableFuture<LoginData> loginRegister(final ISigningWallet signingWallet, final byte[] masterPublicKey, final byte[] masterChaincode, final byte[] pathPublicKey, final byte[] pathChaincode, final String device_id) {
 
         final SettableFuture<ISigningWallet> asyncWamp = SettableFuture.create();
@@ -239,14 +240,14 @@ public class WalletClient {
 
         final AsyncFunction<LoginData, LoginData> loginToSetPathPostLogin = new AsyncFunction<LoginData, LoginData>() {
             @Override
-            public ListenableFuture<LoginData> apply(final LoginData input) throws Exception {                
+            public ListenableFuture<LoginData> apply(final LoginData input) throws Exception {
                 return setupPathBTChip(extendedKeyToPath(pathPublicKey, pathChaincode), input);
             }
         };
 
         return Futures.transform(Futures.transform(
                 asyncWamp, registrationToLogin, es), loginToSetPathPostLogin, es);
-    }    
+    }
 
     private ListenableFuture<LoginData> setupPath(final String mnemonics, final LoginData loginData) {
         final SettableFuture<LoginData> asyncWamp = SettableFuture.create();
@@ -561,7 +562,8 @@ public class WalletClient {
                     @Override
                     public void onEvent(final String topicUri, final Object event) {
                         Log.i(TAG, "BLOCKS IS " + event.toString());
-                        m_notificationHandler.onNewBlock(Integer.parseInt(((Map) event).get("count").toString()));
+                        curBlock = Integer.parseInt(((Map) event).get("count").toString());
+                        m_notificationHandler.onNewBlock(curBlock);
                     }
                 });
 
@@ -930,6 +932,8 @@ public class WalletClient {
         mConnection.call("http://greenaddressit.com/txs/get_list_v2", Map.class, new Wamp.CallHandler() {
             @Override
             public void onResult(final Object txs) {
+                final List resultList = (List) ((Map)result).get("list");
+                curBlock = ((Integer) result.get("cur_block"));
                 asyncWamp.set((Map) txs);
             }
 
@@ -1179,6 +1183,7 @@ public class WalletClient {
             @Override
             public void onSuccess(@Nullable ScanningKeyAndScriptAndPrevoutScripts result) {
                 final Transaction tx = new Transaction(Network.NETWORK);
+                tx.setLockTime(curBlock.longValue());
                 tx.setFeeCT(BigInteger.valueOf(fee));
                 final TxOutData[] outs = new TxOutData[2];
                 final Random rand = new Random();
