@@ -1183,7 +1183,7 @@ public class WalletClient {
             @Override
             public void onSuccess(@Nullable ScanningKeyAndScriptAndPrevoutScripts result) {
                 final Transaction tx = new Transaction(Network.NETWORK);
-                tx.setLockTime(curBlock.longValue());
+                tx.setLockTime(curBlock.longValue());  // prevent fee sniping
                 tx.setFeeCT(BigInteger.valueOf(fee));
                 final TxOutData[] outs = new TxOutData[2];
                 final Random rand = new Random();
@@ -1215,6 +1215,8 @@ public class WalletClient {
                             needed_utxo.get(i).getPtIdx(),
                             new Script(TransactionInput.EMPTY_ARRAY)
                     );
+                    // allow nLockTime to prevent fee sniping:
+                    tx.getInput(i).setSequenceNumber(0xfffffffe);
                 }
                 for (int i = 0; i < outs.length; ++i) {
                     byte[][] newBlindedValues = new byte[blindedValues.length + 1][32];
